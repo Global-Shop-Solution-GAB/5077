@@ -1,0 +1,103 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+
+	F.Intrinsic.UI.InvokeWaitDialog("Processing, Please wait...","XJB003")
+	F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+	F.Intrinsic.Control.CallSub(GetUniqueRouters)
+	F.Intrinsic.Control.CallSub(UpdateRouters)
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(errorhandler, "Sub", V.Ambient.CurrentSubroutine, "ErrNo", V.Ambient.ErrorNumber, "ErrDesc", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.errorhandler.Start
+F.Intrinsic.Control.Try
+	V.Local.sError.Declare(String)
+	
+	'Show error, close pervasive connection, and end program
+	Function.Intrinsic.String.Build("Project: GBG_XRE003_Conversion.g2u{0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.Newline,V.Args.Sub,V.Args.ErrNo,V.Args.ErrDesc,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Unload)
+	
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Build("Project: GBG_XRE003_Conversion.g2u{0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.errorhandler.End
+
+Program.Sub.GetUniqueRouters.Start
+F.Intrinsic.Control.Try
+	V.Local.sSQL.Declare(String)
+
+	V.Local.sSQL.Set("SELECT PART AS ROUTER,QTY_ORDER FROM INVENTORY_MSTR WHERE CODE_SORT = 'KANBAN' AND QTY_ORDER > 0")
+	
+	F.Data.DataTable.CreateFromSQL("RouterList","con",V.Local.sSQL,True)
+	
+	F.Intrinsic.Control.If(V.DataTable.RouterList.RowCount,<=,0)
+		'We don't have anything to update. Close program
+		F.Intrinsic.Control.CallSub(Unload)
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(errorhandler, "Sub", V.Ambient.CurrentSubroutine, "ErrNo", V.Ambient.ErrorNumber, "ErrDesc", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.GetUniqueRouters.End
+
+Program.Sub.UpdateRouters.Start
+F.Intrinsic.Control.Try
+	V.Local.fRounded.Declare(Float)
+	V.Local.iC.Declare(Long)
+	V.Local.sSQL.Declare(String)
+	V.Local.sRouter.Declare(String)
+	
+	'Loop through datatable and update Quantity 1 on Router
+	F.Intrinsic.Control.For(V.Local.iC,0,V.DataTable.RouterList.RowCount--,1)
+		'Go ahead and set the router so we don't have to keep accessing the datatable over and over
+		V.Local.sRouter.Set(V.DataTable.RouterList(V.Local.iC).Router!FieldVal)
+		
+		'See if the record exists in the header. If it doesn't then we don't write, or update anything
+		F.Intrinsic.String.Build("SELECT * FROM ROUTER_HEADER WHERE ROUTER = '{0}' AND ROUTER_TYPE = 'H'",V.Local.sRouter,V.Local.sSQL)
+		F.ODBC.Connection!con.OpenLocalRecordsetRO("rstHeader",V.Local.sSQL)
+		
+		F.Intrinsic.Control.If(V.ODBC.con!rstHeader.EOF,<>,True)
+			'Round the value to 4 decimal values.
+			F.Intrinsic.Math.Round(V.DataTable.RouterList(V.Local.iC).QTY_ORDER!FieldVal,4,V.Local.fRounded)
+			
+			F.Intrinsic.String.Build("SELECT * FROM RTR_PRICE_1_4 WHERE ROUTER = '{0}' AND ROUTER_TYPE = 'Q'",V.Local.sRouter,V.Local.sSQL)
+			F.ODBC.Connection!con.OpenLocalRecordsetRW("rstQuantity",V.Local.sSQL)
+			
+			'If the record doesn't exist we need to create it. I can't imagine why it wouldn't exist... but that's what CORE did so we're doing it as well. Just creating it with bare bones data.
+			F.Intrinsic.Control.If(V.ODBC.con!rstQuantity.EOF,=,True)
+				F.ODBC.con!rstQuantity.AddNew
+				F.ODBC.con!rstQuantity.Set!ROUTER(V.Local.sRouter)
+				F.ODBC.con!rstQuantity.Set!ROUTER_TYPE("Q")
+			F.Intrinsic.Control.EndIf
+			
+			F.ODBC.con!rstQuantity.Set!QUANTITY_1(V.Local.fRounded)
+			F.ODBC.con!rstQuantity.Update
+			F.ODBC.con!rstQuantity.Close
+		F.Intrinsic.Control.EndIf
+		
+		F.ODBC.con!rstHeader.Close
+	F.Intrinsic.Control.Next(V.Local.iC)
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(errorhandler, "Sub", V.Ambient.CurrentSubroutine, "ErrNo", V.Ambient.ErrorNumber, "ErrDesc", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.UpdateRouters.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.Try
+	
+	F.ODBC.Connection!con.Close
+	F.Intrinsic.Control.End
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(errorhandler, "Sub", V.Ambient.CurrentSubroutine, "ErrNo", V.Ambient.ErrorNumber, "ErrDesc", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Unload.End
